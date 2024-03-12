@@ -13,40 +13,17 @@ nebconfigend
 
 ; Stellar Cloud Generator
 ; Author: Rick Howell
-
-; speed         - delay time
-; pitch         - pitch of sample
-
-; start         - sample start
-; density       - grain density
-; density_alt   - grain overlap
-
-; size          - delay feedback
-; size_alt      - delay stereo
-
-; overlap       - dry / wet
-
-; blend         - filter cutoff
-; blend_alt     - final highpass cutoff
-; Window        - filter resonance
-; window_alt    - grain shape
-
-; reset_alt     - filter modes bit 0
-; freeze_alt    - filter modee bit 1
-; reset_alt     - filter -> grains
-; freeze_alt    - filter -> delay
-; record        - input / delay filtering
-; record_alt    - normal / pingpong
+; rick.howell.arts@gmail.com
 
 instr 1
 
 ainl, ainr inch 1, 2
 
 ; __________________________
-; ________Local Vars________
+; _______Initial Vars_______
 ; __________________________
 
-imax_delay  = 4.0
+imax_delay  = 4.0           ; Arbitrary 
 imin_delay  = 0.001953125   ; Arbitrary (2^(-9))
 
 imax_cutoff = 18000.0
@@ -59,23 +36,14 @@ idelScale   = 1.0
 imeth       = 2             ; clipping method
 ilimit      = 0.9
 
-; filter select
-; 00 -> lp
-; 01 -> bp
-; 10 -> hp 
-; 11 -> br
-
-kfilterType = 0
-
-if gkreset == 0 && gkfreeze == 0 then
-    kfilterType = 0
-elseif gkreset == 0 && gkfreeze == 1 then
-    kfilterType = 1
-elseif gkreset == 1 && gkfreeze == 0 then
-    kfilterType = 2
-elseif gkreset == 1 && gkfreeze == 1 then
-    kfilterType = 3
-endif
+aoutl init 0
+aoutr init 0
+afileL init 0
+afileR init 0
+asourceL init 0
+asourceR init 0
+awetSourceL init 0
+awetSourceR init 0
 
 ; __________________________
 ; ______Control Setup_______
@@ -84,6 +52,62 @@ endif
 if gkblend > 0.995 then
     gkblend = 1
 endif
+
+;    __controlmap__
+kdrywetmix      = gkoverlap
+
+ksmpStart       = gkloopstart
+ksmpSpeed       = gkspeed
+ksmpSize        = gkloopsize
+
+kdlyFb          = gkdensity
+kdlyTime        = gkpitch
+kdlyStereo      = gkdensity_alt
+
+kfltC           = gkblend
+kfltQ           = gkwindow
+khpF            = gkblend_alt
+
+; for selecting filter types
+kfltBit0        = gkfreeze
+kfltBit1        = gkreset
+
+; 0 -> pre-delay filtering
+; 1 -> post-delay filtering
+kfltPos         = gkrecord
+
+; 1 -> filtering is apllied to dry signal
+kfltDry         = gkrecord_alt   
+
+; 0 -> ping pong delay
+; 1 -> true stereo delay
+kfltStMode      = gkfreeze_alt
+
+; __Filter Setup__
+
+kfilterType = 0
+
+if kfltBit1 == 0 && kfltBit0 == 0 then
+    kfilterType = 0
+elseif kfltBit1 == 0 && kfltBit0 == 1 then
+    kfilterType = 1
+elseif kfltBit1 == 1 && kfltBit0 == 0 then
+    kfilterType = 2
+elseif kfltBit1 == 1 && kfltBit0 == 1 then
+    kfilterType = 3
+endif
+
+; cutoff in Hz
+kfltCScaled = kfltC * kfltC * kfltC
+kcf = (imin_cutoff * (1-kfltCScaled)) + (imax_cutoff * kfltCScaled)
+; resonance in ???
+kfltQScaled = imin_res + (kfltQ * kfltQ * kfltQ * (imax_res - imin_res))
+kq = kfltQScaled
+; bandwidth
+kbw = ((1 - kfltQ) * 4096.0) + 128.0
+; phaser order, 6 notches
+iorder = 12
+kphsfb = (kfltQ * 2) - 1
 
 ; __________________________
 ; ____Grain / Live Mode_____
@@ -101,52 +125,103 @@ loop:
     itempidx += 1
     if (itempidx < 100) igoto loop
 
-; to read from table:
-; ares tablei andx, ifn
-
-
 ; select from files or raw input
-if gksource == 1 then
+; we can first see about triggering samples
+
+
+; __________________________
+; ______ Grain Maker _______
+; __________________________
+
+if gksource == 0 then
     ainl = 0
     ainr = 0
 endif
 
-;;;;;;;;;;;;;;;;;;;;
-;;;; Dry Filter ;;;;
-;;;;;;;;;;;;;;;;;;;;
+asourceL = ainl + afileL
+asourceR = ainr + afileR
 
+; __________________________
+; _______Pre Filter________
+; __________________________
 
-;;;;;;;;;;;;;;;
-;;;; Delay ;;;;
-;;;;;;;;;;;;;;;
+adrySourceL = asourceL
+adrySourceR = asourceR
+
+alowL rezzy asourceL, kcf, kq, 0
+alowR rezzy asourceR, kcf, kq, 0
+
+abandL butterbp asourceL, kcf, kbw
+abandR butterbp asourceR, kcf, kbw
+
+ahighL rezzy asourceL, kcf, kq, 1
+ahighR rezzy asourceR, kcf, kq, 1
+
+aphsL phaser1 asourceL, kcf, iorder, kphsfb
+aphsR phaser1 asourceR, kcf, iorder, kphsfb
+
+; Filter Select
+; __________________________
+
+if kfilterType == 0 then
+    asourceL = alowL * idelScale
+    asourceR = alowR * idelScale
+elseif kfilterType == 1 then
+    asourceL = abandL * idelScale
+    asourceR = abandR * idelScale
+elseif kfilterType == 2 then
+    asourceL = ahighL * idelScale
+    asourceR = ahighR * idelScale
+else
+    asourceL = aphsL * idelScale
+    asourceR = aphsR * idelScale
+endif
+
+awetSourceL = asourceL
+awetSourceR = asourceR
+
+; __________________________
+; __________Delay___________
+; __________________________
+
+adlyInL init 0
+adlyInR init 0
+
+if kfltPos == 0 then
+    adlyInL = awetSourceL
+    adlyInR = awetSourceR
+else
+    adlyInL = adrySourceL
+    adlyInR = adrySourceR
+endif
 
 ; Probably not worth it to make the stereo control bipolar
 ; If you want a different polarity, you can flip the output cables
 
-; We'll first try to smooth the speed control
-
-kinTime portk gkspeed, 0.1
+kinTime portk kdlyTime, 0.1
 
 ; make delay time
 ; Note, deltap takes values in seconds
 ktime = (imin_delay * (1 - (kinTime * kinTime))) + (imax_delay * kinTime * kinTime)
-kdelayTime portk ktime, 0.1
+
+; kdelayTime portk ktime, 0.1
+kdelayTime = ktime
 
 ; process stereo control
 ; push back right channel
 ; __________________________
-;kOffsetScale = sin($M_PI_2 * gkloopsize_alt)
-kOffsetScale = gkloopsize_alt
+;kOffsetScale = sin($M_PI_2 * kdlyStereo)
+kOffsetScale = kdlyStereo
 ;kOffsetTime portk (kOffsetScale * kdelayTime), 0.01
 kOffsetTime = kOffsetScale * kdelayTime
 aOffsetTime = a(kOffsetTime)
 
-if gkloopsize_alt > 0.0015 then
+if kdlyStereo > 0.0015 then
     adump delayr imax_delay
-    ainrOffset deltapi aOffsetTime
-    delayw ainr
+    asourceROffset deltapi aOffsetTime
+    delayw adlyInR
 else
-    ainrOffset = ainr
+    asourceROffset = adlyInR
 endif
 
 
@@ -163,78 +238,73 @@ adlyR deltapi adelayTime
 
 ; Delay
 ; __________________________
-kfdbk_amount = gkloopsize
+kfdbk_amount = kdlyFb
 
-if gkrecord_alt == 0 then
-    afdbkL = ainl + kfdbk_amount * adlyR
-    afdbkR = ainrOffset + kfdbk_amount * adlyL
+if kfltStMode == 0 then
+    afdbkL = adlyInL + kfdbk_amount * adlyR
+    afdbkR = asourceROffset + kfdbk_amount * adlyL
 else
-    afdbkL = ainl + kfdbk_amount * adlyL
-    afdbkR = ainrOffset + kfdbk_amount * adlyR
+    afdbkL = adlyInL + kfdbk_amount * adlyL
+    afdbkR = asourceROffset + kfdbk_amount * adlyR
 endif
 
 delayw afdbkL
 delayw afdbkR
 
 ; __________________________
-; _______Delay Filter_______
+; _______Post Filter________
 ; __________________________
 
-; cutoff in Hz
-kblend2 = gkblend * gkblend * gkblend
-kcf = (imin_cutoff * (1-kblend2)) + (imax_cutoff * kblend2)
+if kfltPos == 1 then
+    alowL rezzy afdbkL, kcf, kq, 0
+    alowR rezzy afdbkR, kcf, kq, 0
 
-; resonance in ???
-kwindow2 = imin_res + (gkwindow * gkwindow * gkwindow * (imax_res - imin_res))
-kq = kwindow2
+    abandL butterbp afdbkL, kcf, kbw
+    abandR butterbp afdbkR, kcf, kbw
 
-; bandwidth
-kbw = ((1 - gkwindow) * 4096.0) + 128.0
+    ahighL rezzy afdbkL, kcf, kq, 1
+    ahighR rezzy afdbkR, kcf, kq, 1
 
-; phaser order, 6 notches
-iorder = 12
-kphsfb = (gkwindow * 2) - 1
+    aphsL phaser1 afdbkL, kcf, iorder, kphsfb
+    aphsR phaser1 afdbkR, kcf, iorder, kphsfb
 
-alowL rezzy afdbkL, kcf, kq, 0
-alowR rezzy afdbkR, kcf, kq, 0
+    ; Filter Select
+    ; __________________________
 
-abandL butterbp afdbkL, kcf, kbw
-abandR butterbp afdbkR, kcf, kbw
-
-ahighL rezzy afdbkL, kcf, kq, 1
-ahighR rezzy afdbkR, kcf, kq, 1
-
-aphsL phaser1 afdbkL, kcf, iorder, kphsfb
-aphsR phaser1 afdbkR, kcf, iorder, kphsfb
-
-; Filter Select
-; __________________________
-
-if kfilterType == 0 then
-    aFiltDelayL = alowL * idelScale
-    aFiltDelayR = alowR * idelScale
-elseif kfilterType == 1 then
-    aFiltDelayL = abandL * idelScale
-    aFiltDelayR = abandR * idelScale
-elseif kfilterType == 2 then
-    aFiltDelayL = ahighL * idelScale
-    aFiltDelayR = ahighR * idelScale
+    if kfilterType == 0 then
+        aFiltDelayL = alowL * idelScale
+        aFiltDelayR = alowR * idelScale
+    elseif kfilterType == 1 then
+        aFiltDelayL = abandL * idelScale
+        aFiltDelayR = abandR * idelScale
+    elseif kfilterType == 2 then
+        aFiltDelayL = ahighL * idelScale
+        aFiltDelayR = ahighR * idelScale
+    else
+        aFiltDelayL = aphsL * idelScale
+        aFiltDelayR = aphsR * idelScale
+    endif
 else
-    aFiltDelayL = aphsL * idelScale
-    aFiltDelayR = aphsR * idelScale
+    aFiltDelayL = afdbkL
+    aFiltDelayR = afdbkR
 endif
 
-;;;;;;;;;;;;;;;
-;;;; Mixer ;;;;
-;;;;;;;;;;;;;;;
 
-kdrywetmix = gkoverlap
 
-aoutl = (ainl * (1.0-kdrywetmix)) + (aFiltDelayL * kdrywetmix)
-aoutr = (ainr * (1.0-kdrywetmix)) + (aFiltDelayR * kdrywetmix)
+; __________________________
+; __________Mixer___________
+; __________________________
+
+if kfltDry == 0 then
+    aoutl = (adrySourceL * (1.0-kdrywetmix)) + (aFiltDelayL * kdrywetmix)
+    aoutr = (adrySourceR * (1.0-kdrywetmix)) + (aFiltDelayR * kdrywetmix)
+else
+    aoutl = (awetSourceL * (1.0-kdrywetmix)) + (aFiltDelayL * kdrywetmix)
+    aoutr = (awetSourceR * (1.0-kdrywetmix)) + (aFiltDelayR * kdrywetmix)
+endif
 
 ; final hp
-kHpFreq = gkblend_alt * ifinal_hp
+kHpFreq = khpF * ifinal_hp
 aoutl butterhp aoutl, kHpFreq 
 aoutr butterhp aoutr, kHpFreq 
 
@@ -243,15 +313,5 @@ aoutl clip aoutl, imeth, ilimit
 aoutr clip aoutr, imeth, ilimit
 
 outs aoutl, aoutr
-
-endin
-
-; __________________________
-; ______ Grain Maker _______
-; __________________________
-
-instr 2
-
-
 
 endin

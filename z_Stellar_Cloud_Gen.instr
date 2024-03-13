@@ -30,6 +30,7 @@ imax_cutoff = 18000.0
 imin_cutoff = 20.0
 imax_res    = 100.0
 imin_res    = 1.0
+kmax_phsr   = 0.8
 ifinal_hp   = 2048.0
 
 idelScale   = 1.0
@@ -113,7 +114,7 @@ kq = kfltQScaled
 kbw = ((1 - kfltQ) * 4096.0) + 128.0
 ; phaser order, 6 notches
 iorder = 12
-kphsfb = (kfltQ * 2) - 1
+kphsfb = (kfltQ * kmax_phsr * 2) - kmax_phsr
 
 ; generates right channel ftables for stereo files
 gkfilesel_offset = 399

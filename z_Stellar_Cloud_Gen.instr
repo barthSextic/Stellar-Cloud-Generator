@@ -82,7 +82,7 @@ kfltBit1        = gkreset
 ; 1 -> post-delay filtering
 kfltPos         = gkrecord
 
-; 1 -> filtering is apllied to dry signal
+; 1 -> filtering is applied to dry signal
 kfltDry         = gkrecord_alt   
 
 ; 0 -> ping pong delay

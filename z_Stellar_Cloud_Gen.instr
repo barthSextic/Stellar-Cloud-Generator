@@ -3,7 +3,6 @@ ksmps,64
 -B,512
 -b,128
 sr,48000
-kr,48000
 freeze,latching,rising
 reset,latching,rising
 source,latching,falling
@@ -14,6 +13,12 @@ nebconfigend
 ; Stellar Cloud Generator
 ; Author: Rick Howell
 ; rick.howell.arts@gmail.com
+; __________________________
+
+
+; Grain Window
+giwindowtablesize = 512
+giHamming   ftgen   0, 0, giwindowtablesize, 20, 9, 1  
 
 instr 1
 
@@ -33,13 +38,11 @@ imin_res    = 1.0
 ifinal_hp   = 2048.0
 
 idelScale   = 1.0
-imeth       = 2             ; clipping method
+imeth       = 2             ; clipping method (tanh)
 ilimit      = 0.9
 
 aoutl init 0
 aoutr init 0
-afileL init 0
-afileR init 0
 asourceL init 0
 asourceR init 0
 awetSourceL init 0
@@ -114,7 +117,7 @@ kphsfb = (kfltQ * 2) - 1
 ; __________________________
 
 ; generates right channel ftables for stereo files
-gifilesel_offset = 399
+gkfilesel_offset = 399
 gifile_right_offset = 599
 itempidx = 0
 loop:
@@ -125,21 +128,34 @@ loop:
     itempidx += 1
     if (itempidx < 100) igoto loop
 
-; select from files or raw input
-; we can first see about triggering samples
-
-
 ; __________________________
-; ______ Grain Maker _______
+; _______Grain Maker________
 ; __________________________
+
+kfn         = gkfilesel + gkfilesel_offset + 1
+
+kcps        = ksmpSpeed * ksmpSpeed
+aphasor     phasor kcps
+
+kstart      portk ksmpStart, 0.1
+astart      = a(kstart)
+klen        portk ksmpSize, 0.1
+alength     = a((klen * 2) - 1)
+
+andx        = astart + (aphasor * alength)
+ixmode      = 1
+ixoff       = 0
+iwrap       = 1
+
+atab        tablekt  andx, kfn, ixmode, ixoff, iwrap
 
 if gksource == 0 then
-    ainl = 0
-    ainr = 0
+    asourceL = atab
+    asourceR = atab
+else
+    asourceL = ainl
+    asourceR = ainr
 endif
-
-asourceL = ainl + afileL
-asourceR = ainr + afileR
 
 ; __________________________
 ; _______Pre Filter________

@@ -15,11 +15,6 @@ nebconfigend
 ; rick.howell.arts@gmail.com
 ; __________________________
 
-
-; Grain Window
-giwindowtablesize = 512
-giHamming   ftgen   0, 0, giwindowtablesize, 20, 9, 1  
-
 instr 1
 
 ainl, ainr inch 1, 2
@@ -39,7 +34,9 @@ ifinal_hp   = 2048.0
 
 idelScale   = 1.0
 imeth       = 2             ; clipping method (tanh)
-ilimit      = 0.9
+ilimit      = 0.9           ; Arbitrary
+
+ksmooth     = 0.1
 
 aoutl init 0
 aoutr init 0
@@ -59,17 +56,23 @@ endif
 ;    __controlmap__
 kdrywetmix      = gkoverlap
 
+ksmpVol         = gkloopstart_alt
+kinVol          = gkdensity_alt
+
 ksmpStart       = gkloopstart
-ksmpSpeed       = gkspeed
+ksmpPitch       = gkpitch
 ksmpSize        = gkloopsize
+ksmpSpeed       = gkloopsize_alt
 
 kdlyFb          = gkdensity
-kdlyTime        = gkpitch
-kdlyStereo      = gkdensity_alt
+kdlyTime        = gkspeed
+kdlyStereo      = gkoverlap_alt
 
 kfltC           = gkblend
 kfltQ           = gkwindow
 khpF            = gkblend_alt
+
+kmute           = gksource
 
 ; for selecting filter types
 kfltBit0        = gkfreeze
@@ -112,10 +115,6 @@ kbw = ((1 - kfltQ) * 4096.0) + 128.0
 iorder = 12
 kphsfb = (kfltQ * 2) - 1
 
-; __________________________
-; ____Grain / Live Mode_____
-; __________________________
-
 ; generates right channel ftables for stereo files
 gkfilesel_offset = 399
 gifile_right_offset = 599
@@ -129,33 +128,65 @@ loop:
     if (itempidx < 100) igoto loop
 
 ; __________________________
-; _______Grain Maker________
+; _______Source Maker_______
 ; __________________________
 
-kfn         = gkfilesel + gkfilesel_offset + 1
-
-kcps        = ksmpSpeed * ksmpSpeed
-aphasor     phasor kcps
-
-kstart      portk ksmpStart, 0.1
-astart      = a(kstart)
-klen        portk ksmpSize, 0.1
-alength     = a((klen * 2) - 1)
-
-andx        = astart + (aphasor * alength)
-ixmode      = 1
-ixoff       = 0
-iwrap       = 1
-
-atab        tablekt  andx, kfn, ixmode, ixoff, iwrap
-
-if gksource == 0 then
-    asourceL = atab
-    asourceR = atab
-else
-    asourceL = ainl
-    asourceR = ainr
+; pitch setting
+ilogmax = log(32.00)
+ilogmin = log(1.0)
+kfactor = exp(ksmpPitch * (ilogmax - ilogmin) + ilogmin)
+kpitch = 0.125 * kfactor
+if kpitch <= 1.005 && kpitch >= 0.995 then
+    kpitch = 1.0
 endif
+
+; time pos setting
+kfilesr = gisr[gkfilesel]
+kfilelen = gilen[gkfilesel]
+kfilesamps = (kfilelen * kfilesr) * (sr / kfilesr)
+kpeakamp = gipeak[gkfilesel]
+klen = kfilelen; * (kfilesr / sr); Length of Current File in seconds
+kglen = kfilesamps / sr
+
+kconvertedlen = (klen * (kfilesr / sr))
+kloopstart = (ksmpStart * kconvertedlen)
+kloopscalar = ksmpSize
+kloopsize = ((kloopscalar * kloopscalar) * (kconvertedlen-kloopstart))
+if (kloopsize <= 0.000035) then 
+	kloopsize = 0.000035
+endif
+
+kspeed = (ksmpSpeed * 2.0)
+if abs(kspeed) <= 1.025 && abs(kspeed) >= 0.975 then
+    kspeed = 1
+endif
+
+kphasorfreq = ((1 / kloopsize) * kspeed) * (kfilesr / sr)
+if kphasorfreq > sr then
+    kphasorfreq = sr
+endif
+
+aphs phasor kphasorfreq
+atime = kloopstart + (kloopsize * aphs)
+
+kfn         = gkfilesel + gkfilesel_offset + 1
+atimpt      = atime
+kamp        = 1
+klock       = 1
+ktabL       = kfn
+
+atabL       mincer atimpt, kamp, kpitch, ktabL, klock
+
+knumchn = gichn[gkfilesel]
+if knumchn == 2 then
+    ktabR   = gifile_right_offset + gkfilesel
+    atabR   mincer atimpt, kamp, kpitch, ktabR, klock
+else 
+    atabR   = atabL
+endif
+
+asourceL = (atabL * ksmpVol) + (ainl * kinVol)
+asourceR = (atabR * ksmpVol) + (ainr * kinVol)
 
 ; __________________________
 ; _______Pre Filter________
@@ -214,13 +245,11 @@ endif
 ; Probably not worth it to make the stereo control bipolar
 ; If you want a different polarity, you can flip the output cables
 
-kinTime portk kdlyTime, 0.1
+kinTime portk kdlyTime, ksmooth
 
 ; make delay time
 ; Note, deltap takes values in seconds
 ktime = (imin_delay * (1 - (kinTime * kinTime))) + (imax_delay * kinTime * kinTime)
-
-; kdelayTime portk ktime, 0.1
 kdelayTime = ktime
 
 ; process stereo control
@@ -305,8 +334,6 @@ else
     aFiltDelayR = afdbkR
 endif
 
-
-
 ; __________________________
 ; __________Mixer___________
 ; __________________________
@@ -327,6 +354,12 @@ aoutr butterhp aoutr, kHpFreq
 ; clip
 aoutl clip aoutl, imeth, ilimit
 aoutr clip aoutr, imeth, ilimit
+
+; mute
+if kmute == 1 then
+    aoutl = 0
+    aoutr = 0
+endif
 
 outs aoutl, aoutr
 

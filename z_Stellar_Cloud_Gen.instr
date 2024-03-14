@@ -63,10 +63,9 @@ kinVol          = gkdensity_alt
 ksmpStart       = gkloopstart
 ksmpPitch       = gkpitch
 ksmpSize        = gkloopsize
-ksmpSpeed       = gkloopsize_alt
+ksmpSpeed       = gkspeed
 
 kdlyFb          = gkdensity
-kdlyTime        = gkspeed
 kdlyStereo      = gkoverlap_alt
 
 kfltC           = gkblend
@@ -107,11 +106,14 @@ endif
 ; cutoff in Hz
 kfltCScaled = kfltC * kfltC * kfltC
 kcf = (imin_cutoff * (1-kfltCScaled)) + (imax_cutoff * kfltCScaled)
+acf = a(kcf)
 ; resonance in ???
 kfltQScaled = imin_res + (kfltQ * kfltQ * kfltQ * (imax_res - imin_res))
 kq = kfltQScaled
+aq = a(kq)
 ; bandwidth
 kbw = ((1 - kfltQ) * 4096.0) + 128.0
+abw = a(kbw)
 ; phaser order, 6 notches
 iorder = 12
 kphsfb = (kfltQ * kmax_phsr * 2) - kmax_phsr
@@ -157,9 +159,13 @@ if (kloopsize <= 0.000035) then
 	kloopsize = 0.000035
 endif
 
-kspeed = (ksmpSpeed * 2.0)
+kspeed = (ksmpSpeed * 8.0) - 4.0
 if abs(kspeed) <= 1.025 && abs(kspeed) >= 0.975 then
-    kspeed = 1
+    if kspeed > 0 then
+        kspeed = 1.0
+    else
+        kspeed = -1.0
+    endif
 endif
 
 kphasorfreq = ((1 / kloopsize) * kspeed) * (kfilesr / sr)
@@ -189,6 +195,9 @@ endif
 asourceL = (atabL * ksmpVol) + (ainl * kinVol)
 asourceR = (atabR * ksmpVol) + (ainr * kinVol)
 
+asourceL = tanh(asourceL)
+asourceR = tanh(asourceR)
+
 ; __________________________
 ; _______Pre Filter________
 ; __________________________
@@ -196,14 +205,14 @@ asourceR = (atabR * ksmpVol) + (ainr * kinVol)
 adrySourceL = asourceL
 adrySourceR = asourceR
 
-alowL rezzy asourceL, kcf, kq, 0
-alowR rezzy asourceR, kcf, kq, 0
+alowL rezzy asourceL, acf, aq, 0
+alowR rezzy asourceR, acf, aq, 0
 
-abandL butterbp asourceL, kcf, kbw
-abandR butterbp asourceR, kcf, kbw
+abandL butterbp asourceL, acf, abw
+abandR butterbp asourceR, acf, abw
 
-ahighL rezzy asourceL, kcf, kq, 1
-ahighR rezzy asourceR, kcf, kq, 1
+ahighL rezzy asourceL, acf, aq, 1
+ahighR rezzy asourceR, acf, aq, 1
 
 aphsL phaser1 asourceL, kcf, iorder, kphsfb
 aphsR phaser1 asourceR, kcf, iorder, kphsfb
@@ -229,7 +238,7 @@ awetSourceL = asourceL
 awetSourceR = asourceR
 
 ; __________________________
-; __________Delay___________
+; __________Reverb__________
 ; __________________________
 
 adlyInL init 0
@@ -243,76 +252,36 @@ else
     adlyInR = adrySourceR
 endif
 
-; Probably not worth it to make the stereo control bipolar
-; If you want a different polarity, you can flip the output cables
+israte      = sr
+ipitchm     = 1.0
+iskip       = 0
 
-kinTime portk kdlyTime, ksmooth
+kfblvl      = tanh(3 * kdlyFb)
+kfco        = 18000.0
 
-; make delay time
-; Note, deltap takes values in seconds
-ktime = (imin_delay * (1 - (kinTime * kinTime))) + (imax_delay * kinTime * kinTime)
-kdelayTime = ktime
+afdbkL, afdbkR reverbsc adlyInL, adlyInR, kfblvl, kfco, israte, ipitchm, iskip
 
-; process stereo control
-; push back right channel
-; __________________________
-;kOffsetScale = sin($M_PI_2 * kdlyStereo)
-kOffsetScale = kdlyStereo
-;kOffsetTime portk (kOffsetScale * kdelayTime), 0.01
-kOffsetTime = kOffsetScale * kdelayTime
-aOffsetTime = a(kOffsetTime)
-
-if kdlyStereo > 0.0015 then
-    adump delayr imax_delay
-    asourceROffset deltapi aOffsetTime
-    delayw adlyInR
-else
-    asourceROffset = adlyInR
-endif
-
-
-; __main delay processing__
-; __________________________
-
-adelayTime = a(kdelayTime)
-
-adump delayr imax_delay
-adlyL deltapi adelayTime
-
-adump delayr imax_delay
-adlyR deltapi adelayTime
-
-; Delay
-; __________________________
-kfdbk_amount = kdlyFb
-
-if kfltStMode == 0 then
-    afdbkL = adlyInL + kfdbk_amount * adlyR
-    afdbkR = asourceROffset + kfdbk_amount * adlyL
-else
-    afdbkL = adlyInL + kfdbk_amount * adlyL
-    afdbkR = asourceROffset + kfdbk_amount * adlyR
-endif
-
-delayw afdbkL
-delayw afdbkR
+; outputs are afdbkL and afdbkR
 
 ; __________________________
 ; _______Post Filter________
 ; __________________________
 
 if kfltPos == 1 then
-    alowL rezzy afdbkL, kcf, kq, 0
-    alowR rezzy afdbkR, kcf, kq, 0
+    adrySourceL = asourceL
+    adrySourceR = asourceR
 
-    abandL butterbp afdbkL, kcf, kbw
-    abandR butterbp afdbkR, kcf, kbw
+    alowL rezzy asourceL, acf, aq, 0
+    alowR rezzy asourceR, acf, aq, 0
 
-    ahighL rezzy afdbkL, kcf, kq, 1
-    ahighR rezzy afdbkR, kcf, kq, 1
+    abandL butterbp asourceL, acf, abw
+    abandR butterbp asourceR, acf, abw
 
-    aphsL phaser1 afdbkL, kcf, iorder, kphsfb
-    aphsR phaser1 afdbkR, kcf, iorder, kphsfb
+    ahighL rezzy asourceL, acf, aq, 1
+    ahighR rezzy asourceR, acf, aq, 1
+
+    aphsL phaser1 asourceL, kcf, iorder, kphsfb
+    aphsR phaser1 asourceR, kcf, iorder, kphsfb
 
     ; Filter Select
     ; __________________________
@@ -353,8 +322,13 @@ aoutl butterhp aoutl, kHpFreq
 aoutr butterhp aoutr, kHpFreq 
 
 ; clip
+/*
 aoutl clip aoutl, imeth, ilimit
 aoutr clip aoutr, imeth, ilimit
+*/
+
+aoutl   = tanh(aoutl)
+aoutr   = tanh(aoutr)
 
 ; mute
 if kmute == 1 then

@@ -15,7 +15,7 @@ Make sure to have some audio files in there!
 
 ## Usage
 
-There are three main components. A looper, a delay, and a filter.
+There are three main components. A looper, a reverb, and a filter.
 
 Note: Both the inputs, and the sample are simultaneously sent through the system. Density_Alt controls the volume of the inputs, and Start_Alt controls the sample volume. 
 
@@ -27,19 +27,14 @@ __Looper__
 Start       - Sample Start
 Size        - Sample End
 Pitch       - Sample Pitch
+Speed       - Sample Speed
 
 Start_Alt   - Sample Volume
-Size_Alt    - Sample Speed
 
-__Delay__
+__Reverb__
 
-Density     - Delay Feedback
-Overlap     - Delay Dry / Wet
-Speed       - Delay Time
-
-Overlap_Alt - Delay Stereo
-Freeze_Alt  -   'Off'   -> Ping Pong. 
-                'On'    -> True Stereo
+Density     - Feedback
+Overlap     - Dry / Wet
 
 __Filter__
 

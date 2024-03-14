@@ -307,19 +307,21 @@ endif
 ; __________________________
 ; __________Mixer___________
 ; __________________________
+adwmix    = a(kdrywetmix)
 
 if kfltDry == 0 then
-    aoutl = (adrySourceL * (1.0-kdrywetmix)) + (aFiltDelayL * kdrywetmix)
-    aoutr = (adrySourceR * (1.0-kdrywetmix)) + (aFiltDelayR * kdrywetmix)
+    aoutl = (adrySourceL * (1.0-adwmix)) + (aFiltDelayL * adwmix)
+    aoutr = (adrySourceR * (1.0-adwmix)) + (aFiltDelayR * adwmix)
 else
-    aoutl = (awetSourceL * (1.0-kdrywetmix)) + (aFiltDelayL * kdrywetmix)
-    aoutr = (awetSourceR * (1.0-kdrywetmix)) + (aFiltDelayR * kdrywetmix)
+    aoutl = (awetSourceL * (1.0-adwmix)) + (aFiltDelayL * adwmix)
+    aoutr = (awetSourceR * (1.0-adwmix)) + (aFiltDelayR * adwmix)
 endif
 
 ; final hp
 kHpFreq = khpF * ifinal_hp
-aoutl butterhp aoutl, kHpFreq 
-aoutr butterhp aoutr, kHpFreq 
+ahpf    = a(kHpFreq)
+aoutl butterhp aoutl, ahpf 
+aoutr butterhp aoutr, ahpf 
 
 ; clip
 /*
